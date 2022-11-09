@@ -77,6 +77,11 @@ assume-role-clear() {
     [[ "${AWS_SESSION_TOKEN_ORIGINAL}" != "" ]] && export AWS_SESSION_TOKEN="${AWS_SESSION_TOKEN_ORIGINAL}"
     [[ "${AWS_PROFILE_ORIGINAL}" != "" ]] && export AWS_PROFILE="${AWS_PROFILE_ORIGINAL}"
     [[ "${AWS_DEFAULT_PROFILE_ORIGINAL}" != "" ]] && export AWS_DEFAULT_PROFILE="${AWS_DEFAULT_PROFILE_ORIGINAL}"
+    unset AWS_ACCESS_KEY_ID_ORIGINAL
+    unset AWS_SECRET_ACCESS_KEY_ORIGINAL
+    unset AWS_SESSION_TOKEN_ORIGINAL
+    unset AWS_PROFILE_ORIGINAL
+    unset AWS_DEFAULT_PROFILE_ORIGINAL
 }
 
 ### Stack
@@ -152,7 +157,7 @@ create-stack-set() {
     local -r FILE_NAME="${2}"
     local -r REGIONS="${3}" # One unique string separated by space
     local ORG_IDS="${4}" # One unique string separated by comma. Optional
-                         # If not informed, will use the root OU from Org
+                         # If not informed (or empty string), will use the root OU from Org
 
     if [[ "${STACK_NAME}" = "" || "${FILE_NAME}" = "" ]]
     then
@@ -181,9 +186,10 @@ create-stack-set() {
                                 --regions ${REGIONS} --output text --query 'OperationId')
     echo "--> OperationId: ${OPERATION_ID}"
     
-    echo "Sleeping for 20 seconds ..."
-    sleep 20
+    echo "Sleeping for 60 seconds ..."
+    sleep 60
 
+    echo "Run: list-stack-set-operation \"${STACK_NAME}\" \"${OPERATION_ID}\""
     list-stack-set-operation "${STACK_NAME}" "${OPERATION_ID}"
 }
 
@@ -213,9 +219,10 @@ update-stack-set() {
                                 --regions ${REGIONS} --output text --query 'OperationId')
     echo "--> OperationId: ${OPERATION_ID}"
     
-    echo "Sleeping for 20 seconds ..."
-    sleep 20
+    echo "Sleeping for 60 seconds ..."
+    sleep 60
 
+    echo "Run: list-stack-set-operation \"${STACK_NAME}\" \"${OPERATION_ID}\""
     list-stack-set-operation "${STACK_NAME}" "${OPERATION_ID}"
 }
 
