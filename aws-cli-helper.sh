@@ -1,14 +1,22 @@
 #!/bin/bash
 
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this
+# software and associated documentation files (the "Software"), to deal in the Software
+# without restriction, including without limitation the rights to use, copy, modify,
+# merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so.
+
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
-# ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+# PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #
 # For LICENSE information, plese check the source repository:
 # https://github.com/lazize/aws-cli-helper
+#
+# The opinions expressed in this repository and code are my own and not necessarily those of my employer (past, present and future).
 
 aws-whoami() {
     aws sts get-caller-identity --no-cli-pager --output json
@@ -159,7 +167,7 @@ create-stack-set() {
     local ORG_IDS="${4}" # One unique string separated by comma. Optional
                          # If not informed (or empty string), will use the root OU from Org
 
-    if [[ "${STACK_NAME}" = "" || "${FILE_NAME}" = "" ]]
+    if [[ "${STACK_NAME}" = "" || "${FILE_NAME}" = "" || "${REGIONS}" = "" ]]
     then
         echo "usage: create-stack-set STACK_NAME FILE_NAME [REGIONS] [ORG_IDS]"
         return 1
@@ -198,10 +206,9 @@ update-stack-set() {
     local -r STACK_NAME="${1}"
     local -r FILE_NAME="${2}"
     local -r REGIONS="${3}" # One unique string separated by space
-    local ORG_IDS="${4}" # One unique string separated by comma. Optional
-                         # If not informed, will use the root OU from Org
+    local ORG_IDS="${4}" # One unique string separated by comma
 
-    if [[ "${STACK_NAME}" = "" || "${FILE_NAME}" = "" ]]
+    if [[ "${STACK_NAME}" = "" || "${FILE_NAME}" = "" || "${REGIONS}" = "" || "${ORG_IDS}" = "" ]]
     then
         echo "usage: update-stack-set STACK_NAME FILE_NAME [REGIONS] [ORG_IDS]"
         return 1
@@ -439,4 +446,32 @@ securityhub-admin() {
     aws securityhub describe-organization-configuration --no-cli-pager --output json &&
     aws securityhub describe-hub --no-cli-pager --output json &&
     aws securityhub list-members --output table --query 'sort_by(Members, &AccountId)[].[AccountId, MemberStatus]' --no-cli-pager
+}
+
+### CloudWatch
+put-metric-alarm-for-ec2-reboot-at-check-failure() {
+    # Follow the recommendations from:
+    # https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/UsingAlarmActions.html#AddingRebootActions
+    # https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/viewing_metrics_with_cloudwatch.html#status-check-metrics
+    
+    local -r REGION_ID=$(aws ec2 describe-availability-zones --query 'AvailabilityZones[0].RegionName' --output text)
+    local -r INSTANCE_IDS=$(aws ec2 describe-instances --query 'Reservations[].Instances[].InstanceId' --output text)
+    for INSTANCE_ID in ${INSTANCE_IDS}
+    do
+        echo "Intance: ${INSTANCE_ID}"
+        aws cloudwatch put-metric-alarm \
+            --alarm-name "StatusCheckFailed_Instance-reboot-${INSTANCE_ID}" \
+            --actions-enabled \
+            --alarm-actions "arn:aws:automate:${REGION_ID}:ec2:reboot" \
+            --metric-name 'StatusCheckFailed_Instance' \
+            --namespace 'AWS/EC2' \
+            --statistic 'Minimum' \
+            --dimensions "[{\"Name\":\"InstanceId\",\"Value\":\"${INSTANCE_ID}\"}]" \
+            --period 60 \
+            --evaluation-periods 3 \
+            --datapoints-to-alarm 3 \
+            --threshold 0 \
+            --comparison-operator 'GreaterThanThreshold' \
+            --treat-missing-data 'missing'
+    done
 }
