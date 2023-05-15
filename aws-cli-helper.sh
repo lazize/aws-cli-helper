@@ -40,10 +40,12 @@ assume-role() {
     local -r ROLE_ARN="${1}"
     local ROLE_SESSION_NAME="${2}" # Optional
     local -r ROLE_EXTERNAL_ID="${3}" # Optional
+    local -r SERIAL_NUMBER="${4}" # Optional
+    local -r TOKEN_CODE="${5}" # Optional
 
     if [[ "${ROLE_ARN}" = "" ]]
     then
-        echo "usage: assume-role ROLE_ARN [ROLE_SESSION_NAME] [ROLE_EXTERNAL_ID]"
+        echo "usage: assume-role ROLE_ARN [ROLE_SESSION_NAME] [ROLE_EXTERNAL_ID] [SERIAL_NUMBER] [TOKEN_CODE]"
         return 1
     fi
 
@@ -55,19 +57,28 @@ assume-role() {
     [[ "${AWS_DEFAULT_PROFILE}" != "" ]] && export AWS_DEFAULT_PROFILE_ORIGINAL="${AWS_DEFAULT_PROFILE}"
     
     [[ "${ROLE_SESSION_NAME}" = "" ]] && ROLE_SESSION_NAME="assume-role-script"
-    
-    if [[ "${ROLE_EXTERNAL_ID}" = "" ]]
+
+    if [[ "${ROLE_EXTERNAL_ID}" != "" && "${SERIAL_NUMBER}" != "" && "${TOKEN_CODE}" != "" ]]
     then
-        local -r ASSUMED_ROLE=$(aws sts assume-role --role-arn "${ROLE_ARN}" --role-session-name "${ROLE_SESSION_NAME}" --no-cli-pager --output text --query 'Credentials.[AccessKeyId, SecretAccessKey, SessionToken]')
-    else
+        local -r ASSUMED_ROLE=$(aws sts assume-role --role-arn "${ROLE_ARN}" --role-session-name "${ROLE_SESSION_NAME}" --external-id "${ROLE_EXTERNAL_ID}" --serial-number "${SERIAL_NUMBER}" --token-code "${TOKEN_CODE}" --no-cli-pager --output text --query 'Credentials.[AccessKeyId, SecretAccessKey, SessionToken]')
+    elif [[ "${SERIAL_NUMBER}" != "" && "${TOKEN_CODE}" != "" ]]
+    then
+        local -r ASSUMED_ROLE=$(aws sts assume-role --role-arn "${ROLE_ARN}" --role-session-name "${ROLE_SESSION_NAME}" --serial-number "${SERIAL_NUMBER}" --token-code "${TOKEN_CODE}" --no-cli-pager --output text --query 'Credentials.[AccessKeyId, SecretAccessKey, SessionToken]')
+    elif [[ "${ROLE_EXTERNAL_ID}" != "" ]]
+    then
         local -r ASSUMED_ROLE=$(aws sts assume-role --role-arn "${ROLE_ARN}" --role-session-name "${ROLE_SESSION_NAME}" --external-id "${ROLE_EXTERNAL_ID}" --no-cli-pager --output text --query 'Credentials.[AccessKeyId, SecretAccessKey, SessionToken]')
+    else
+        local -r ASSUMED_ROLE=$(aws sts assume-role --role-arn "${ROLE_ARN}" --role-session-name "${ROLE_SESSION_NAME}" --no-cli-pager --output text --query 'Credentials.[AccessKeyId, SecretAccessKey, SessionToken]')
     fi
-    
+
     if [[ "${ASSUMED_ROLE}" != "" ]]
     then
-        export AWS_ACCESS_KEY_ID=$(echo "${ASSUMED_ROLE}" | awk '{print $1}')
-        export AWS_SECRET_ACCESS_KEY=$(echo "${ASSUMED_ROLE}" | awk '{print $2}')
-        export AWS_SESSION_TOKEN=$(echo "${ASSUMED_ROLE}" | awk '{print $3}')
+        AWS_ACCESS_KEY_ID=$(echo "${ASSUMED_ROLE}" | awk '{print $1}')
+        AWS_SECRET_ACCESS_KEY=$(echo "${ASSUMED_ROLE}" | awk '{print $2}')
+        AWS_SESSION_TOKEN=$(echo "${ASSUMED_ROLE}" | awk '{print $3}')
+        export AWS_ACCESS_KEY_ID
+        export AWS_SECRET_ACCESS_KEY
+        export AWS_SESSION_TOKEN
         unset AWS_PROFILE
         unset AWS_DEFAULT_PROFILE
         return 0
@@ -79,6 +90,10 @@ assume-role-clear() {
     unset AWS_ACCESS_KEY_ID
     unset AWS_SECRET_ACCESS_KEY
     unset AWS_SESSION_TOKEN
+    unset AWS_REGION
+    unset AWS_DEFAULT_REGION
+    unset AWS_PROFILE
+    unset AWS_DEFAULT_PROFILE
     # if exists original keys, put it back
     [[ "${AWS_ACCESS_KEY_ID_ORIGINAL}" != "" ]] && export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID_ORIGINAL}"
     [[ "${AWS_SECRET_ACCESS_KEY_ORIGINAL}" != "" ]] && export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY_ORIGINAL}"
@@ -90,6 +105,39 @@ assume-role-clear() {
     unset AWS_SESSION_TOKEN_ORIGINAL
     unset AWS_PROFILE_ORIGINAL
     unset AWS_DEFAULT_PROFILE_ORIGINAL
+}
+
+### Session Token
+get-session-token() {
+    local -r SERIAL_NUMBER="${1}"
+    local -r TOKEN_CODE="${2}"
+    if [[ "${SERIAL_NUMBER}" = "" || "${TOKEN_CODE}" = "" ]]
+    then
+        echo "usage: get-session-token SERIAL_NUMBER TOKEN_CODE"
+        return 1
+    fi
+
+    # If exists old keys, save it
+    [[ "${AWS_ACCESS_KEY_ID}" != "" ]] && export AWS_ACCESS_KEY_ID_ORIGINAL="${AWS_ACCESS_KEY_ID}"
+    [[ "${AWS_SECRET_ACCESS_KEY}" != "" ]] && export AWS_SECRET_ACCESS_KEY_ORIGINAL="${AWS_SECRET_ACCESS_KEY}"
+    [[ "${AWS_SESSION_TOKEN}" != "" ]] && export AWS_SESSION_TOKEN_ORIGINAL="${AWS_SESSION_TOKEN}"
+    [[ "${AWS_PROFILE}" != "" ]] && export AWS_PROFILE_ORIGINAL="${AWS_PROFILE}"
+    [[ "${AWS_DEFAULT_PROFILE}" != "" ]] && export AWS_DEFAULT_PROFILE_ORIGINAL="${AWS_DEFAULT_PROFILE}"
+
+    local -r CREDENTIALS=$(aws sts get-session-token --serial-number "${SERIAL_NUMBER}" --token-code "${TOKEN_CODE}" --no-cli-pager --output text --query 'Credentials.[AccessKeyId, SecretAccessKey, SessionToken]')
+    if [[ "${CREDENTIALS}" != "" ]]
+    then
+        AWS_ACCESS_KEY_ID=$(echo "${CREDENTIALS}" | awk '{print $1}')
+        AWS_SECRET_ACCESS_KEY=$(echo "${CREDENTIALS}" | awk '{print $2}')
+        AWS_SESSION_TOKEN=$(echo "${CREDENTIALS}" | awk '{print $3}')
+        export AWS_ACCESS_KEY_ID
+        export AWS_SECRET_ACCESS_KEY
+        export AWS_SESSION_TOKEN
+        unset AWS_PROFILE
+        unset AWS_DEFAULT_PROFILE
+        return 0
+    fi
+    return 1
 }
 
 ### Stack
@@ -474,4 +522,59 @@ put-metric-alarm-for-ec2-reboot-at-check-failure() {
             --comparison-operator 'GreaterThanThreshold' \
             --treat-missing-data 'missing'
     done
+}
+
+### IP Ranges
+ip-ranges-services()
+{
+    echo "Run: curl -s 'https://ip-ranges.amazonaws.com/ip-ranges.json' | jq -r '.prefixes[] | .service' | sort -u" &&
+    curl -s 'https://ip-ranges.amazonaws.com/ip-ranges.json' | jq -r '.prefixes[] | .service' | sort -u
+}
+
+ip-ranges-regions()
+{
+    echo "Run: curl -s 'https://ip-ranges.amazonaws.com/ip-ranges.json' | jq -r '.prefixes[] | .region' | sort -u" &&
+    curl -s 'https://ip-ranges.amazonaws.com/ip-ranges.json' | jq -r '.prefixes[] | .region' | sort -u
+}
+
+ip-ranges-services-from-region()
+{
+    local -r REGION="${1}"
+    if [[ "${REGION}" = "" ]]
+    then
+        echo "ERROR - Invalid 'REGION' argument"
+        return 1
+    fi
+    echo "Run: curl -s 'https://ip-ranges.amazonaws.com/ip-ranges.json' | jq -r \".prefixes[] | select(.region | contains(\\\"${REGION}\\\"))? | .service\" | sort -u" &&
+    curl -s 'https://ip-ranges.amazonaws.com/ip-ranges.json' | jq -r ".prefixes[] | select(.region | contains(\"${REGION}\"))? | .service" | sort -u
+}
+
+ip-ranges-prefix-from-service()
+{
+    local -r SERVICE="${1}"
+    if [[ "${SERVICE}" = "" ]]
+    then
+        echo "ERROR - Invalid 'SERVICE' argument"
+        return 1
+    fi
+    echo "Run: curl -s 'https://ip-ranges.amazonaws.com/ip-ranges.json' | jq -r \".prefixes[] | select(.service == \\\"${SERVICE}\\\")? | .ip_prefix\" | sort -V" &&
+    curl -s 'https://ip-ranges.amazonaws.com/ip-ranges.json' | jq -r ".prefixes[] | select(.service == \"${SERVICE}\")? | .ip_prefix" | sort -V
+}
+
+ip-ranges-prefix-from-service-and-region()
+{
+    local -r SERVICE="${1}"
+    local -r REGION="${2}"
+    if [[ "${SERVICE}" = "" ]]
+    then
+        echo "ERROR - Invalid 'SERVICE' argument"
+        return 1
+    fi
+    if [[ "${REGION}" = "" ]]
+    then
+        echo "ERROR - Invalid 'REGION' argument"
+        return 1
+    fi
+    echo "Run: curl -s 'https://ip-ranges.amazonaws.com/ip-ranges.json' | jq -r \".prefixes[] | select(.service == \\\"${SERVICE}\\\")? | select(.region == \\\"${REGION}\\\")? | .ip_prefix\" | sort -V" &&
+    curl -s 'https://ip-ranges.amazonaws.com/ip-ranges.json' | jq -r ".prefixes[] | select(.service == \"${SERVICE}\")? | select(.region == \"${REGION}\")? | .ip_prefix" | sort -V
 }
