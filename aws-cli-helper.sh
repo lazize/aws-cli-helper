@@ -578,3 +578,10 @@ ip-ranges-prefix-from-service-and-region()
     echo "Run: curl -s 'https://ip-ranges.amazonaws.com/ip-ranges.json' | jq -r \".prefixes[] | select(.service == \\\"${SERVICE}\\\")? | select(.region == \\\"${REGION}\\\")? | .ip_prefix\" | sort -V" &&
     curl -s 'https://ip-ranges.amazonaws.com/ip-ranges.json' | jq -r ".prefixes[] | select(.service == \"${SERVICE}\")? | select(.region == \"${REGION}\")? | .ip_prefix" | sort -V
 }
+
+### STS
+decode-authorization-message()
+{
+    local -r ENCODED_MESSAGE="${1}"
+    aws sts decode-authorization-message --encoded-message "${ENCODED_MESSAGE}" --query "DecodedMessage" --output text | jq -r '.'
+}
