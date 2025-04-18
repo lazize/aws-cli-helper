@@ -31,6 +31,12 @@ aws-region() {
     fi
 }
 
+aws-current-region()
+{
+    local -r CURRENT_REGION=$(aws ec2 describe-availability-zones --output text --query 'AvailabilityZones[0].[RegionName]')
+    echo "${CURRENT_REGION}"
+}
+
 aws-profile() {
     export AWS_PROFILE=${1}
 }
@@ -584,4 +590,32 @@ decode-authorization-message()
 {
     local -r ENCODED_MESSAGE="${1}"
     aws sts decode-authorization-message --encoded-message "${ENCODED_MESSAGE}" --query "DecodedMessage" --output text | jq -r '.'
+}
+
+### Secrets Manager
+list-secrets-host()
+{
+    local -r EXIST_JQ=$(which jq)
+    if [[ "${EXIST_JQ}" = "" ]]
+    then
+        echo "ERROR - jq not found"
+        return 1
+    fi
+
+    aws secretsmanager list-secrets --query 'SecretList[*].[ARN, Name]' --output text | while read -r SECRET_ID SECRET_NAME
+    do
+        SECRET_STRING=$(aws secretsmanager get-secret-value --secret-id "${SECRET_ID}" --query 'SecretString' --output text)
+        SECRET_HOST=$(jq -r 'try .host' <<<"${SECRET_STRING}" 2>/dev/null)
+        if [[ "${SECRET_HOST}" = "" ]]
+        then
+            echo "${SECRET_NAME} - Secret-Not-Json"
+        else
+            if [[ "${SECRET_HOST}" = "null" ]]
+            then
+                echo "${SECRET_NAME} - Host-Not-Found"
+            else
+                echo "${SECRET_NAME} - ${SECRET_HOST}"
+            fi
+        fi
+    done
 }
