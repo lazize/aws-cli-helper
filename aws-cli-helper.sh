@@ -619,3 +619,118 @@ list-secrets-host()
         fi
     done
 }
+
+### Lambda
+put-runtime-management-config-auto()
+{
+    local -r FUNCTION_NAME_ARN="${1}"
+    if [[ "${FUNCTION_NAME_ARN}" = "" ]]
+    then
+        echo "ERROR - Invalid 'FUNCTION_NAME_ARN' argument"
+        echo ""
+        echo "Usage: put-runtime-management-config-auto FUNCTION_NAME_ARN"
+        return 1
+    fi
+    aws lambda put-runtime-management-config --function-name "${FUNCTION_NAME_ARN}" --update-runtime-on "Auto"
+}
+
+put-runtime-management-config-auto-all()
+{
+    aws lambda list-functions --query "Functions[].[Runtime, FunctionArn, FunctionName]" --output text | while read -r FUNC_RUNTIME FUNC_ARN FUNC_NAME
+    do
+        put-runtime-management-config-auto "${FUNC_ARN}"
+    done
+}
+
+get-runtime-management-config-all()
+{
+    aws lambda list-functions --query "Functions[].[Runtime, FunctionArn, FunctionName]" --output text | while read -r FUNC_RUNTIME FUNC_ARN FUNC_NAME
+    do
+        aws lambda get-runtime-management-config --function-name "${FUNC_ARN}" --query "[UpdateRuntimeOn, FunctionArn]" --output text
+    done
+}
+
+update-function-configuration-runtime()
+{
+    local -r FUNCTION_NAME_ARN="${1}"
+    local -r FUNCTION_RUNTIME="${2}"
+    if [[ "${FUNCTION_NAME_ARN}" = "" ]]
+    then
+        echo "ERROR - Invalid 'FUNCTION_NAME_ARN' argument"
+        echo ""
+        echo "Usage: update-function-configuration-runtime FUNCTION_NAME_ARN FUNCTION_RUNTIME"
+        return 1
+    fi
+    if [[ "${FUNCTION_RUNTIME}" = "" ]]
+    then
+        echo "ERROR - Invalid 'FUNCTION_RUNTIME' argument"
+        echo ""
+        echo "Usage: update-function-configuration-runtime FUNCTION_NAME_ARN FUNCTION_RUNTIME"
+        return 1
+    fi
+    local -r RUNTIME_VERSIONS_URL="https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/lambda/2015-03-31/service-2.json"
+    local -r RUNTIME_VERSIONS=$(curl --silent --show-error "${RUNTIME_VERSIONS_URL}" | jq -r '.shapes.Runtime.enum[]')
+    if ! echo "${RUNTIME_VERSIONS}" | grep --quiet "${FUNCTION_RUNTIME}"
+    then
+        echo "ERROR - Invalid 'FUNCTION_RUNTIME' argument"
+        echo ""
+        echo "Usage: update-function-configuration-runtime FUNCTION_NAME_ARN FUNCTION_RUNTIME"
+        echo ""
+        echo "Valid values:"
+        echo "${RUNTIME_VERSIONS}"
+        return 1
+    fi
+    aws lambda update-function-configuration --function-name "${FUNCTION_NAME_ARN}" --runtime "${FUNCTION_RUNTIME}"
+}
+
+update-function-configuration-runtime-all()
+{
+    local -r FUNCTION_FROM_RUNTIME="${1}"
+    local -r FUNCTION_TO_RUNTIME="${2}"
+    if [[ "${FUNCTION_FROM_RUNTIME}" = "" ]]
+    then
+        echo "ERROR - Invalid 'FUNCTION_FROM_RUNTIME' argument"
+        echo ""
+        echo "Usage: update-function-configuration-runtime-all FUNCTION_FROM_RUNTIME FUNCTION_TO_RUNTIME"
+        return 1
+    fi
+    if [[ "${FUNCTION_TO_RUNTIME}" = "" ]]
+    then
+        echo "ERROR - Invalid 'FUNCTION_TO_RUNTIME' argument"
+        echo ""
+        echo "Usage: update-function-configuration-runtime-all FUNCTION_FROM_RUNTIME FUNCTION_TO_RUNTIME"
+        return 1
+    fi
+    local -r RUNTIME_VERSIONS_URL="https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/lambda/2015-03-31/service-2.json"
+    local -r RUNTIME_VERSIONS=$(curl --silent --show-error "${RUNTIME_VERSIONS_URL}" | jq -r '.shapes.Runtime.enum[]' | sort -V)
+    if ! echo "${RUNTIME_VERSIONS}" | grep --quiet "${FUNCTION_TO_RUNTIME}"
+    then
+        echo "ERROR - Invalid 'FUNCTION_TO_RUNTIME' argument"
+        echo ""
+        echo "Usage: update-function-configuration-runtime-all FUNCTION_FROM_RUNTIME FUNCTION_TO_RUNTIME"
+        echo ""
+        echo "Valid values:"
+        echo "${RUNTIME_VERSIONS}"
+        return 1
+    fi
+
+    aws lambda list-functions --query "Functions[].[Runtime, FunctionArn, FunctionName]" --output text |  sort -k1V -k2 | while read -r FUNC_RUNTIME FUNC_ARN FUNC_NAME
+    do
+        if [[ "${FUNC_RUNTIME}" != "${FUNCTION_TO_RUNTIME}" ]]
+        then
+            local IS_FUNCTION_FROM_RUNTIME=""
+            IS_FUNCTION_FROM_RUNTIME=$(echo "${FUNC_RUNTIME}" | grep "^${FUNCTION_FROM_RUNTIME}")
+            if [[ "${IS_FUNCTION_FROM_RUNTIME}" != "" ]]
+            then
+                aws lambda update-function-configuration --function-name "${FUNC_ARN}" --runtime "${FUNCTION_TO_RUNTIME}"
+            fi
+        fi
+    done
+
+}
+
+list-functions-runtime()
+{
+    aws lambda list-functions --query "Functions[].[Runtime, FunctionArn, FunctionName]" --output text
+}
+
